@@ -1,69 +1,52 @@
 import numpy as np
+import pandas as pd
 from flask import Flask, request, jsonify
 import joblib
 
-# Initialize Flask app
-app = Flask(__name__)
+# Assuming 'app', 'model', and 'scaler' are already defined and loaded from previous steps
+# If running this cell independently, ensure the following are loaded:
+# app = Flask(__name__)
+# model = joblib.load('logistic_regression_model.pkl')
+# scaler = joblib.load('scaler.pkl')
 
-# Load trained model and scaler
-model = joblib.load('logistic_regression_model.pkl')
-scaler = joblib.load('scaler.pkl')
-
-# Feature order must match training data
-feature_columns = [
-    'Pregnancies',
-    'Glucose',
-    'BloodPressure',
-    'SkinThickness',
-    'Insulin',
-    'BMI',
-    'DiabetesPedigreeFunction',
-    'Age'
-]
+# Define the column names based on the training data (assuming X from previous steps)
+# In a real API, these column names would be fixed or part of the model metadata
+feature_columns = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    # Ensure JSON request
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
+    if not request.json:
+        return jsonify({"error": "Invalid input, request must be JSON"}), 400
 
     try:
-        data = request.get_json()
+        # Get JSON data from the request
+        data = request.json
 
-        # Validate required features
-        missing_features = [f for f in feature_columns if f not in data]
-        if missing_features:
-            return jsonify({
-                "error": f"Missing required features: {missing_features}"
-            }), 400
+        # Convert the received JSON data into a pandas DataFrame
+        # Ensure the DataFrame has the same column order as the training data
+        input_df = pd.DataFrame([data])
+        input_df = input_df[feature_columns] # Ensure correct column order
 
-        # Convert input JSON → NumPy array (2D)
-        input_array = np.array(
-            [[float(data[feature]) for feature in feature_columns]]
-        )
+        # Use the loaded scaler to transform the input data
+        scaled_data = scaler.transform(input_df)
 
-        # Scale input
-        scaled_data = scaler.transform(input_array)
+        # Use the loaded model to make a prediction
+        prediction = model.predict(scaled_data)[0]
+        prediction_proba = model.predict_proba(scaled_data)[0].tolist()
 
-        # Predict
-        prediction = int(model.predict(scaled_data)[0])
-        prediction_proba = model.predict_proba(scaled_data)[0]
-
-        # Response
+        # Convert prediction to human-readable format
         result = {
-            "prediction": prediction,  # 0 = No Diabetes, 1 = Diabetes
-            "probability_no_diabetes": float(prediction_proba[0]),
-            "probability_diabetes": float(prediction_proba[1])
+            "prediction": int(prediction), # 0 or 1
+            "probability_no_diabetes": prediction_proba[0],
+            "probability_diabetes": prediction_proba[1]
         }
 
-        return jsonify(result), 200
+        return jsonify(result)
 
-    except ValueError:
-        return jsonify({"error": "All input values must be numeric"}), 400
+    except KeyError as e:
+        return jsonify({"error": f"Missing required feature in input: {e}"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-if __name__ == '__main__':
-    app.run(debug=True)
+print("'/predict' endpoint defined.")
 
